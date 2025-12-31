@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum PostType {
+  LOST
+  FOUND
+}
+
+enum PostStatus {
+  OPEN
+  MATCHED
+  CLOSED
+}
+
+enum Category {
+  PHONE
+  WALLET
+  KEYS
+  LAPTOP
+  ID_CARD
+  AIRPODS
+  BAG
+  CLOTHING
+  OTHER
+}
+
+model User {
+  id        String   @id
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  posts              Post[] @relation("UserPosts")
+  messages           Message[]
+  ownerConversations Conversation[] @relation("OwnerConversations")
+  buyerConversations Conversation[] @relation("BuyerConversations")
+  reports            Report[]
+
+  @@map("User")
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Your Post table shows type TEXT, title TEXT.
+  // Keep them as strings so Prisma matches.
+  type  String
+  title String
+
+  // If your Post table DOES have these extra fields in the editor, add them back later.
+  // For now we keep it minimal so it matches your current table.
+
+  createdById String @map("created_by_id")
+  createdBy   User? @relation("UserPosts", fields: [createdById], references: [id])
+
+
+
+  images        Image[]
+  conversations Conversation[]
+  reports       Report[]
+  description  String?
+  category     Category?
+  locationText String @map("location_text")
+  dateOccurred DateTime @map("date_occurred")
+
+  @@map("Post")
+}
+
+model Image {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  url       String
+
+  postId String @map("post_id")
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("Image")
+}
+model Conversation {
+  id        String   @id
+  createdAt DateTime @default(now()) // your table is createdAt (camelCase)
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  ownerId String
+  owner   User   @relation("OwnerConversations", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  buyerId String
+  buyer   User   @relation("BuyerConversations", fields: [buyerId], references: [id], onDelete: Cascade)
+
+  messages Message[]
+
+  @@unique([postId, ownerId, buyerId])
+  @@map("Conversation")
+}
+
+model Message {
+  id        String   @id
+  createdAt DateTime @default(now()) // your table is createdAt (camelCase)
+  content   String
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  senderId String
+  sender   User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@map("Message")
+}
+
+model Report {
+  id        String   @id
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  reporterId String
+  reporter   User @relation(fields: [reporterId], references: [id])
+
+  reason    String
+  createdAt DateTime @default(now()) // your table is createdAt (camelCase)
+
+  @@map("Report")
+}
