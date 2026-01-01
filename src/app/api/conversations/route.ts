@@ -1,24 +1,25 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUserFromRequest } from "@/lib/authserver";
 
 function devMsg(e: any) {
-  return process.env.NODE_ENV === "development" ? String(e?.message ?? e) : "Server error";
+  return process.env.NODE_ENV === "development"
+    ? String(e?.message ?? e)
+    : "Server error";
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const auth = req.headers.get("authorization");
     const user = await getUserFromRequest(auth);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const conversations = await prisma.conversation.findMany({
-  where: { OR: [{ buyerId: user.id }, { ownerId: user.id }] },
-  include: { post: { include: { images: true } }, owner: true, buyer: true },
-  orderBy: { createdAt: "desc" },
-});
-
-
+      where: { OR: [{ buyerId: user.id }, { ownerId: user.id }] },
+      include: { post: { include: { images: true } }, owner: true, buyer: true },
+      orderBy: { createdAt: "desc" },
+    });
 
     return NextResponse.json({ conversations });
   } catch (e: any) {
@@ -26,6 +27,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: devMsg(e) }, { status: 500 });
   }
 }
+
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -36,4 +38,3 @@ export async function OPTIONS() {
     },
   });
 }
-
