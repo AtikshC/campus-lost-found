@@ -3,58 +3,99 @@ import { prisma } from "@/lib/prisma";
 import { getUserFromRequest } from "@/lib/authserver";
 
 function devMsg(e: any) {
-  return process.env.NODE_ENV === "development" ? String(e?.message ?? e) : "Server error";
+  return process.env.NODE_ENV === "development"
+    ? String(e?.message ?? e)
+    : "Server error";
 }
 
-type Ctx = { params: { id: string } } | { params: Promise<{ id: string }> };
+async function requireMember(conversationId: string, userId: string) {
+  const convo = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { id: true, ownerId: true, buyerId: true },
+  });
 
-async function getId(ctx: Ctx) {
-  const p: any = (ctx as any).params;
-  return typeof p?.then === "function" ? (await p).id : p.id;
+  if (!convo) return { ok: false as const, status: 404, error: "Conversation not found" };
+  const isMember = convo.ownerId === userId || convo.buyerId === userId;
+  if (!isMember) return { ok: false as const, status: 403, error: "Forbidden" };
+
+  return { ok: true as const, convo };
 }
 
-export async function GET(_req: Request, ctx: Ctx) {
+// GET /api/conversations/:id/messages  -> list messages
+export async function GET(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
   try {
-    const id = await getId(ctx);
-
-    const user = await getUserFromRequest();
+    const auth = req.headers.get("authorization");
+    const user = await getUserFromRequest(auth);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const conversation = await prisma.conversation.findFirst({
-      where: { id, OR: [{ buyerId: user.id }, { ownerId: user.id }] },
+    const member = await requireMember(params.id, user.id);
+    if (!member.ok) {
+      return NextResponse.json({ error: member.error }, { status: member.status });
+    }
+
+    const messages = await prisma.message.findMany({
+      where: { conversationId: params.id },
+      orderBy: { createdAt: "asc" },
       include: {
-        owner: true,
-        buyer: true,
-        post: { include: { images: true } },
+        sender: { select: { id: true, name: true, email: true } }, // optional
       },
     });
 
-    if (!conversation) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({ conversation });
+    return NextResponse.json({ messages });
   } catch (e: any) {
-    console.error("GET /api/conversations/[id] failed:", e);
+    console.error("GET /api/conversations/[id]/messages failed:", e);
     return NextResponse.json({ error: devMsg(e) }, { status: 500 });
   }
 }
 
-export async function DELETE(_req: Request, ctx: Ctx) {
+// POST /api/conversations/:id/messages -> create a message
+export async function POST(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
   try {
-    const id = await getId(ctx);
-
-    const user = await getUserFromRequest();
+    const auth = req.headers.get("authorization");
+    const user = await getUserFromRequest(auth);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const convo = await prisma.conversation.findFirst({
-      where: { id, OR: [{ buyerId: user.id }, { ownerId: user.id }] },
-      select: { id: true },
+    const member = await requireMember(params.id, user.id);
+    if (!member.ok) {
+      return NextResponse.json({ error: member.error }, { status: member.status });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const content = String(body?.content ?? "").trim();
+
+    if (!content) {
+      return NextResponse.json({ error: "Message content is required" }, { status: 400 });
+    }
+    if (content.length > 5000) {
+      return NextResponse.json({ error: "Message too long" }, { status: 400 });
+    }
+
+    const message = await prisma.message.create({
+      data: {
+        conversationId: params.id,
+        senderId: user.id,
+        content,
+      },
+      include: {
+        sender: { select: { id: true, name: true, email: true } }, // optional
+      },
     });
 
-    if (!convo) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // optional: bump conversation updatedAt if you rely on it for inbox sorting
+    await prisma.conversation.update({
+      where: { id: params.id },
+      data: { updatedAt: new Date() },
+    });
 
-    await prisma.conversation.delete({ where: { id } });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ message }, { status: 201 });
   } catch (e: any) {
-    console.error("DELETE /api/conversations/[id] failed:", e);
+    console.error("POST /api/conversations/[id]/messages failed:", e);
     return NextResponse.json({ error: devMsg(e) }, { status: 500 });
   }
 }
