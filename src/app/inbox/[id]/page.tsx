@@ -15,64 +15,63 @@ type Message = {
   sender?: { id: string; email: string | null; name: string | null };
 };
 
-type ConversationMini = {
+type Conversation = {
   id: string;
   ownerId: string;
   buyerId: string;
-  owner?: { id: string; email: string | null; name: string | null };
-  buyer?: { id: string; email: string | null; name: string | null };
+  owner?: { id: string; email: string | null };
+  buyer?: { id: string; email: string | null };
 };
 
 export default function ChatPage() {
   const params = useParams<{ id: string }>();
   const conversationId = params?.id;
 
-  const { user, loading: authLoading } = useAuth();
-  const userId = user?.id ?? null;
+  const { token, user, loading: authLoading } = useAuth();
+  const myId = user?.id ?? null;
+
+  const [convo, setConvo] = useState<Conversation | null>(null);
 
   const [msgsLoading, setMsgsLoading] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
 
-  // Optional: fetch conversation list so we can show the other email
-  const [conv, setConv] = useState<ConversationMini | null>(null);
-
   const otherEmail = useMemo(() => {
-    if (!conv || !userId) return null;
-    return conv.ownerId === userId ? conv.buyer?.email : conv.owner?.email;
-  }, [conv, userId]);
+    if (!convo || !myId) return "";
+    const other =
+      convo.ownerId === myId ? convo.buyer?.email ?? "" : convo.owner?.email ?? "";
+    return other || "";
+  }, [convo, myId]);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user || !conversationId) return;
-
-    fetchJSON<{ conversations: ConversationMini[] }>("/api/conversations")
-      .then((d) => {
-        const found = (d.conversations ?? []).find((x) => x.id === conversationId) ?? null;
-        setConv(found);
-      })
-      .catch(() => {});
-  }, [authLoading, user, conversationId]);
-
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user || !userId || !conversationId) {
+    if (!token || !myId || !conversationId) {
       setMsgsLoading(false);
       return;
     }
 
+    // Load conversation meta (for email label)
+    fetchJSON<{ conversation: Conversation }>(`/api/conversations/${conversationId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((d) => setConvo(d.conversation))
+      .catch(() => setConvo(null));
+
+    // Load messages
     setMsgsLoading(true);
-    fetchJSON<{ messages: Message[] }>(`/api/conversations/${conversationId}/messages`)
+    fetchJSON<{ messages: Message[] }>(`/api/conversations/${conversationId}/messages`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((d) => setMessages(d.messages ?? []))
       .catch((e) => {
         console.error(e);
         toast.error("Failed to load messages");
       })
       .finally(() => setMsgsLoading(false));
-  }, [user, userId, conversationId, authLoading]);
+  }, [token, myId, conversationId, authLoading]);
 
   async function send() {
-    if (!user || !userId) return toast.error("Sign in first");
+    if (!token || !myId) return toast.error("Sign in first");
     if (!conversationId) return toast.error("Missing conversation id");
     const content = draft.trim();
     if (!content) return;
@@ -80,7 +79,11 @@ export default function ChatPage() {
     try {
       const data = await fetchJSON<{ message: Message }>(
         `/api/conversations/${conversationId}/messages`,
-        { method: "POST", body: JSON.stringify({ content }) }
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ content }),
+        }
       );
 
       setDraft("");
@@ -91,15 +94,15 @@ export default function ChatPage() {
     }
   }
 
-  if (authLoading) return <div className="text-neutral-300">Loading…</div>;
+  if (authLoading) return <div className="text-neutral-200">Loading…</div>;
 
-  if (!user) {
+  if (!token || !user) {
     return (
       <div className="rounded-3xl border border-white/10 bg-black/30 p-10 backdrop-blur-md">
-        <div className="text-2xl font-semibold">Inbox</div>
-        <div className="mt-2 text-neutral-300">Sign in to view and send messages.</div>
+        <div className="text-2xl font-semibold text-white">Inbox</div>
+        <div className="mt-2 text-neutral-200">Sign in to view and send messages.</div>
         <Link
-          className="mt-6 inline-flex items-center rounded-xl border border-white/20 px-4 py-2 hover:bg-white/5"
+          className="mt-6 inline-flex items-center rounded-xl bg-white px-4 py-2 text-black font-semibold hover:bg-neutral-200"
           href="/auth"
         >
           Go to Sign in
@@ -109,42 +112,46 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-black/30 backdrop-blur-md flex flex-col">
-      <div className="border-b border-white/10 p-4 flex items-center justify-between">
+    <div className="h-[calc(100vh-9rem)] sm:h-auto rounded-3xl border border-white/10 bg-black/30 backdrop-blur-md flex flex-col overflow-hidden">
+      {/* Sticky header */}
+      <div className="sticky top-0 z-10 border-b border-white/10 bg-black/40 backdrop-blur-md p-4 flex items-center justify-between">
         <div>
-          <div className="text-xs text-neutral-400">Chat</div>
-          <div className="font-semibold">
-            Conversation • {otherEmail ?? "Unknown"}
+          <div className="text-xs text-neutral-300">Chat</div>
+          <div className="font-semibold text-white">
+            {otherEmail ? `Chat with ${otherEmail}` : "Conversation"}
           </div>
         </div>
         <Link
           href="/inbox"
-          className="rounded-xl border border-white/10 px-3 py-1.5 text-sm hover:bg-white/5"
+          className="rounded-xl border border-white/10 px-3 py-1.5 text-sm text-neutral-100 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mustang-300"
         >
           Back
         </Link>
       </div>
 
+      {/* Messages */}
       <div className="flex-1 p-4 overflow-auto">
-        {msgsLoading && <div className="text-sm text-neutral-300">Loading messages…</div>}
+        {msgsLoading && <div className="text-sm text-neutral-200">Loading messages…</div>}
 
         {!msgsLoading && messages.length === 0 && (
-          <div className="text-sm text-neutral-300">No messages yet. Say hi 👋</div>
+          <div className="text-sm text-neutral-200">No messages yet. Say hi 👋</div>
         )}
 
         <div className="space-y-3">
           {messages.map((m) => {
-            const mine = m.senderId === userId;
+            const mine = m.senderId === myId;
             return (
               <div key={m.id} className={mine ? "flex justify-end" : "flex justify-start"}>
                 <div
                   className={[
-                    "max-w-[80%] rounded-2xl px-4 py-2 border",
-                    mine ? "bg-white/10 border-white/15" : "bg-black/30 border-white/10",
+                    "max-w-[85%] rounded-2xl px-4 py-2 border shadow-sm",
+                    mine
+                      ? "bg-mustang-500/20 border-mustang-300/30 text-white"
+                      : "bg-white/10 border-white/15 text-white",
                   ].join(" ")}
                 >
-                  <div className="text-sm text-neutral-100 whitespace-pre-wrap">{m.content}</div>
-                  <div className="mt-1 text-[10px] text-neutral-400">
+                  <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+                  <div className="mt-1 text-[10px] text-neutral-200/70">
                     {new Date(m.createdAt).toLocaleString()}
                   </div>
                 </div>
@@ -154,22 +161,26 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="border-t border-white/10 p-3">
+      {/* Sticky composer */}
+      <div className="border-t border-white/10 bg-black/40 backdrop-blur-md p-3">
         <div className="flex gap-2 items-center">
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Message…"
-            className="flex-1 rounded-2xl bg-white/10 border border-white/15 px-4 py-3 text-sm text-white placeholder:text-neutral-300 outline-none focus:border-white/30"
+            className="flex-1 rounded-2xl bg-white/10 border border-white/15 px-4 py-3 text-sm text-white placeholder:text-neutral-200/70 outline-none focus-visible:ring-2 focus-visible:ring-mustang-300"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") send();
+            }}
           />
           <button
             onClick={send}
-            className="rounded-2xl px-4 py-3 text-sm border border-white/20 bg-white text-black hover:bg-neutral-200"
+            className="rounded-2xl px-4 py-3 text-sm font-semibold border border-mustang-300/30 bg-mustang-500/25 text-white hover:bg-mustang-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mustang-300"
           >
             Send
           </button>
         </div>
-        <div className="mt-2 text-xs text-neutral-300">
+        <div className="mt-2 text-xs text-neutral-200/80">
           Keep it safe: don’t share sensitive info.
         </div>
       </div>
