@@ -12,23 +12,21 @@ function devMsg(e: any) {
 async function requireMember(conversationId: string, userId: string) {
   const convo = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    select: { id: true, ownerId: true, buyerId: true },
+    select: { ownerId: true, buyerId: true },
   });
-
   if (!convo) return { ok: false as const, status: 404, error: "Conversation not found" };
-  const isMember = convo.ownerId === userId || convo.buyerId === userId;
-  if (!isMember) return { ok: false as const, status: 403, error: "Forbidden" };
-
+  if (convo.ownerId !== userId && convo.buyerId !== userId) {
+    return { ok: false as const, status: 403, error: "Forbidden" };
+  }
   return { ok: true as const };
 }
 
-// ✅ NOTE: Next expects NextRequest + params as a Promise in your setup
 export async function GET(
   req: NextRequest,
-  ctx: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await ctx.params;
+    const { id } = await context.params;
 
     const auth = req.headers.get("authorization");
     const user = await getUserFromRequest(auth);
@@ -40,7 +38,6 @@ export async function GET(
     const messages = await prisma.message.findMany({
       where: { conversationId: id },
       orderBy: { createdAt: "asc" },
-      include: { sender: { select: { id: true, name: true, email: true } } },
     });
 
     return NextResponse.json({ messages });
@@ -52,10 +49,10 @@ export async function GET(
 
 export async function POST(
   req: NextRequest,
-  ctx: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await ctx.params;
+    const { id } = await context.params;
 
     const auth = req.headers.get("authorization");
     const user = await getUserFromRequest(auth);
@@ -64,22 +61,12 @@ export async function POST(
     const member = await requireMember(id, user.id);
     if (!member.ok) return NextResponse.json({ error: member.error }, { status: member.status });
 
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => ({} as any));
     const content = String((body as any)?.content ?? "").trim();
     if (!content) return NextResponse.json({ error: "content is required" }, { status: 400 });
 
     const message = await prisma.message.create({
-      data: {
-        conversationId: id,
-        senderId: user.id,
-        content,
-      },
-      include: { sender: { select: { id: true, name: true, email: true } } },
-    });
-
-    await prisma.conversation.update({
-      where: { id },
-      data: { updatedAt: new Date() },
+      data: { conversationId: id, senderId: user.id, content },
     });
 
     return NextResponse.json({ message }, { status: 201 });
