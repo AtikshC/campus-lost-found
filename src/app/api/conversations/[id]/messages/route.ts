@@ -14,6 +14,7 @@ async function requireMember(conversationId: string, userId: string) {
     where: { id: conversationId },
     select: { ownerId: true, buyerId: true },
   });
+
   if (!convo) return { ok: false as const, status: 404, error: "Conversation not found" };
   if (convo.ownerId !== userId && convo.buyerId !== userId) {
     return { ok: false as const, status: 403, error: "Forbidden" };
@@ -38,6 +39,7 @@ export async function GET(
     const messages = await prisma.message.findMany({
       where: { conversationId: id },
       orderBy: { createdAt: "asc" },
+      include: { sender: { select: { id: true, name: true, email: true } } },
     });
 
     return NextResponse.json({ messages });
@@ -66,7 +68,17 @@ export async function POST(
     if (!content) return NextResponse.json({ error: "content is required" }, { status: 400 });
 
     const message = await prisma.message.create({
-      data: { conversationId: id, senderId: user.id, content },
+      data: {
+        conversationId: id,
+        senderId: user.id,
+        content,
+      },
+      include: { sender: { select: { id: true, name: true, email: true } } },
+    });
+
+    await prisma.conversation.update({
+      where: { id },
+      data: { updatedAt: new Date() },
     });
 
     return NextResponse.json({ message }, { status: 201 });
