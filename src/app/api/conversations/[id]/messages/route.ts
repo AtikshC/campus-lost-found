@@ -18,10 +18,10 @@ async function requireMember(conversationId: string, userId: string) {
   const isMember = convo.ownerId === userId || convo.buyerId === userId;
   if (!isMember) return { ok: false as const, status: 403, error: "Forbidden" };
 
-  return { ok: true as const, convo };
+  return { ok: true as const };
 }
 
-// GET /api/conversations/:id/messages  -> list messages
+// GET /api/conversations/:id/messages
 export async function GET(
   req: Request,
   { params }: { params: { id: string } }
@@ -32,16 +32,12 @@ export async function GET(
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const member = await requireMember(params.id, user.id);
-    if (!member.ok) {
-      return NextResponse.json({ error: member.error }, { status: member.status });
-    }
+    if (!member.ok) return NextResponse.json({ error: member.error }, { status: member.status });
 
     const messages = await prisma.message.findMany({
       where: { conversationId: params.id },
       orderBy: { createdAt: "asc" },
-      include: {
-        sender: { select: { id: true, name: true, email: true } }, // optional
-      },
+      include: { sender: { select: { id: true, name: true, email: true } } },
     });
 
     return NextResponse.json({ messages });
@@ -51,7 +47,7 @@ export async function GET(
   }
 }
 
-// POST /api/conversations/:id/messages -> create a message
+// POST /api/conversations/:id/messages
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
@@ -62,19 +58,11 @@ export async function POST(
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const member = await requireMember(params.id, user.id);
-    if (!member.ok) {
-      return NextResponse.json({ error: member.error }, { status: member.status });
-    }
+    if (!member.ok) return NextResponse.json({ error: member.error }, { status: member.status });
 
     const body = await req.json().catch(() => ({}));
     const content = String(body?.content ?? "").trim();
-
-    if (!content) {
-      return NextResponse.json({ error: "Message content is required" }, { status: 400 });
-    }
-    if (content.length > 5000) {
-      return NextResponse.json({ error: "Message too long" }, { status: 400 });
-    }
+    if (!content) return NextResponse.json({ error: "content is required" }, { status: 400 });
 
     const message = await prisma.message.create({
       data: {
@@ -82,12 +70,9 @@ export async function POST(
         senderId: user.id,
         content,
       },
-      include: {
-        sender: { select: { id: true, name: true, email: true } }, // optional
-      },
+      include: { sender: { select: { id: true, name: true, email: true } } },
     });
 
-    // optional: bump conversation updatedAt if you rely on it for inbox sorting
     await prisma.conversation.update({
       where: { id: params.id },
       data: { updatedAt: new Date() },
