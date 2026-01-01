@@ -45,27 +45,31 @@ const {
   imageUrls = [],
 } = body ?? {};
 
-    if (!type || !title) {
-      return NextResponse.json({ error: "Missing fields (type, title)" }, { status: 400 });
-    }
+    const titleSafe = String(title ?? "").trim();
+const descriptionSafe = String(body?.description ?? "").trim();
 
+if (!type) {
+  return NextResponse.json({ error: "Missing post type" }, { status: 400 });
+}
 
-    const post = await prisma.post.create({
+const post = await prisma.post.create({
   data: {
-    id: randomUUID(),
     type,
-    title,
-    description: String(description).trim(),
-    category: Category.OTHER,
-    locationText: String(locationText).trim() || "Unknown",
-    dateOccurred: dateOccurred ? new Date(dateOccurred) : new Date(),
+    title: titleSafe || "Untitled",
+    description: descriptionSafe, // ← can be empty
+    category: body?.category ?? "OTHER",
+    locationText: body?.locationText ?? "",
+    dateOccurred: body?.dateOccurred
+      ? new Date(body.dateOccurred)
+      : new Date(),
     createdById: user.id,
     images: {
-      create: (imageUrls as string[]).map((url) => ({ url })),
+      create: (body?.imageUrls ?? []).map((url: string) => ({ url })),
     },
   },
   include: { images: true, createdBy: true },
 });
+
 
 
     return NextResponse.json({ post }, { status: 201 });
