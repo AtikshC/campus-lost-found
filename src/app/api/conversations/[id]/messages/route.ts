@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUserFromRequest } from "@/lib/authserver";
 
@@ -21,21 +22,23 @@ async function requireMember(conversationId: string, userId: string) {
   return { ok: true as const };
 }
 
-// GET /api/conversations/:id/messages
+// ✅ NOTE: Next expects NextRequest + params as a Promise in your setup
 export async function GET(
-  req: Request,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await ctx.params;
+
     const auth = req.headers.get("authorization");
     const user = await getUserFromRequest(auth);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const member = await requireMember(params.id, user.id);
+    const member = await requireMember(id, user.id);
     if (!member.ok) return NextResponse.json({ error: member.error }, { status: member.status });
 
     const messages = await prisma.message.findMany({
-      where: { conversationId: params.id },
+      where: { conversationId: id },
       orderBy: { createdAt: "asc" },
       include: { sender: { select: { id: true, name: true, email: true } } },
     });
@@ -47,26 +50,27 @@ export async function GET(
   }
 }
 
-// POST /api/conversations/:id/messages
 export async function POST(
-  req: Request,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await ctx.params;
+
     const auth = req.headers.get("authorization");
     const user = await getUserFromRequest(auth);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const member = await requireMember(params.id, user.id);
+    const member = await requireMember(id, user.id);
     if (!member.ok) return NextResponse.json({ error: member.error }, { status: member.status });
 
     const body = await req.json().catch(() => ({}));
-    const content = String(body?.content ?? "").trim();
+    const content = String((body as any)?.content ?? "").trim();
     if (!content) return NextResponse.json({ error: "content is required" }, { status: 400 });
 
     const message = await prisma.message.create({
       data: {
-        conversationId: params.id,
+        conversationId: id,
         senderId: user.id,
         content,
       },
@@ -74,7 +78,7 @@ export async function POST(
     });
 
     await prisma.conversation.update({
-      where: { id: params.id },
+      where: { id },
       data: { updatedAt: new Date() },
     });
 
