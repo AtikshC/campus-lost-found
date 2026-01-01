@@ -6,7 +6,7 @@ import { randomUUID } from "crypto";
 export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
-    const user = await getUserFromRequest();
+    const user = await getUserFromRequest(req.headers.get("authorization"));
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const conversation = await prisma.conversation.findUnique({ where: { id } });
