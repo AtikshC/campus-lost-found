@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUserFromRequest } from "@/lib/authserver";
+import { randomUUID } from "crypto";
 
 function devMsg(e: any) {
   return process.env.NODE_ENV === "development"
@@ -48,8 +49,15 @@ export async function POST(
     if (!content) return NextResponse.json({ error: "content is required" }, { status: 400 });
 
     const message = await prisma.message.create({
-      data: { conversationId: id, senderId: user.id, content },
-    });
+    data: {
+      id: randomUUID(),              // ✅ add this
+      conversationId: id,
+      senderId: user.id,
+      content,
+      createdAt: new Date(),       // only add if your schema requires it
+    },
+    include: { sender: true },
+  });
 
     return NextResponse.json({ message }, { status: 201 });
   } catch (e: any) {
